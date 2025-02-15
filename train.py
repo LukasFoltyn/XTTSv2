@@ -1,15 +1,15 @@
-from safe_gpu import safe_gpu
+# from safe_gpu import safe_gpu
 from time import sleep
 
-no_gpu = True
-while no_gpu:
-    try:
-        safe_gpu.claim_gpus()
-        no_gpu = False
-    except:
-        print("Waiting for free GPU")
-        sleep(5)
-        pass
+# no_gpu = True
+# while no_gpu:
+#     try:
+#         safe_gpu.claim_gpus()
+#         no_gpu = False
+#     except:
+#         print("Waiting for free GPU")
+#         sleep(5)
+#         pass
 
 import argparse
 import time
@@ -56,13 +56,12 @@ def train_gpt(language, num_epochs, batch_size, grad_acumm, dataset_path, output
   DATASETS_CONFIG_LIST = [config_dataset]
 
   # DVAE files
-  DVAE_CHECKPOINT = "/mnt/matylda5/xmihol00/xTTSv2/data/run/training/XTTS_v2.0_original_model_files/dvae.pth"
-  MEL_NORM_FILE = "/mnt/matylda5/xmihol00/xTTSv2/data/run/training/XTTS_v2.0_original_model_files/mel_stats.pth"
+  DVAE_CHECKPOINT = "./original_model_files/dvae.pth"
+  MEL_NORM_FILE = "./original_model_files/mel_stats.pth"
     
   # Paths to the downloaded XTTS v2.0.1 files
-  TOKENIZER_FILE = "/mnt/matylda5/xmihol00/xTTSv2/data/run/training/XTTS_v2.0_original_model_files/vocab.json"
-  XTTS_CHECKPOINT = "/mnt/matylda5/xmihol00/xTTSv2/data/run/training/XTTS_v2.0_original_model_files/model.pth"
-  XTTS_CONFIG_FILE = "/mnt/matylda5/xmihol00/xTTSv2/data/run/training/XTTS_v2.0_original_model_files/config.json"
+  TOKENIZER_FILE = "./original_model_files/vocab.json"
+  XTTS_CHECKPOINT = "./original_model_files/model.pth"
 
     # init args and config
   model_args = GPTArgs(
@@ -108,7 +107,7 @@ def train_gpt(language, num_epochs, batch_size, grad_acumm, dataset_path, output
     log_model_step=100,
     save_step=1000,
     save_n_checkpoints=1,
-    save_checkpoints=True,
+    save_checkpoints=False,
     # target_loss="loss",
     print_eval=False,
     # Optimizer values like tortoise, pytorch implementation with modifications to not apply WD to non-weight parameters.
@@ -232,8 +231,8 @@ if __name__ == "__main__":
       clear_gpu_cache()
 
   # copy original files to avoid parameters changes issues
-  os.system(f"cp {config_path} {args.out_path}")
-  os.system(f"cp {vocab_file} {args.out_path}")
+  # os.system(f"cp {config_path} {args.out_path}")
+  # os.system(f"cp {vocab_file} {args.out_path}")
 
   print(f"Training took {time.time() - start_time} seconds.")
   print("Model training done.")
