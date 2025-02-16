@@ -11,9 +11,8 @@ from time import sleep
 #         sleep(5)
 #         pass
 
+import numpy as np
 import argparse
-import time
-import os
 import torch
 import gc
 
@@ -21,15 +20,27 @@ torch.set_num_threads(16)
 
 from trainer import Trainer, TrainerArgs
 
-from TTS.config.shared_configs import BaseDatasetConfig
-from TTS.tts.datasets import load_tts_samples
 from TTS.tts.layers.xtts.trainer.gpt_trainer import GPTArgs, GPTTrainer, GPTTrainerConfig, XttsAudioConfig
+
+def load_tts_samples(metadata_file, language, eval_split_size=0.02, eval_split_max_size=128):
+  items = []
+
+  with open(metadata_file, "r", encoding="utf-8") as f:
+    for line in f:
+      audio, transcript = line.strip().split("|")
+      items.append({"audio_file": audio, "text": transcript, "language": language})
+  
+  np.random.shuffle(items)
+
+  eval_size = min(int(len(items) * eval_split_size), eval_split_max_size)
+
+  return items[eval_size:], items[:eval_size]
 
 def clear_gpu_cache():
   if torch.cuda.is_available():
     torch.cuda.empty_cache()
 
-def train_gpt(language, num_epochs, batch_size, grad_acumm, dataset_path, output_path, speaker_ref):
+def train_gpt(language, num_epochs, batch_size, grad_acumm, metadata_path, output_path, speaker_ref):
   RUN_NAME = "GPT_XTTS_FT"
     
   #  Logging parameters
@@ -43,17 +54,6 @@ def train_gpt(language, num_epochs, batch_size, grad_acumm, dataset_path, output
   START_WITH_EVAL = False  # if True it will star with evaluation
   BATCH_SIZE = batch_size  # set here the batch size
   GRAD_ACUMM_STEPS = grad_acumm  # set here the grad accumulation steps
-
-  # Define here the dataset that you want to use for the fine-tuning on.
-  config_dataset = BaseDatasetConfig(
-    formatter="ljspeech",
-    path=dataset_path,
-    meta_file_train="metadata.txt",
-    language=language,
-  )
-  
-  # Add here the configs of the datasets
-  DATASETS_CONFIG_LIST = [config_dataset]
 
   # DVAE files
   DVAE_CHECKPOINT = "./original_model_files/dvae.pth"
@@ -101,7 +101,7 @@ def train_gpt(language, num_epochs, batch_size, grad_acumm, dataset_path, output
     batch_group_size=48,
     eval_batch_size=BATCH_SIZE,
     num_loader_workers=8,
-    eval_split_max_size=256,
+    eval_split_max_size=128,
     print_step=50,
     plot_step=100,
     log_model_step=100,
@@ -131,12 +131,7 @@ def train_gpt(language, num_epochs, batch_size, grad_acumm, dataset_path, output
   model = GPTTrainer.init_from_config(config)
 
   # load training samples
-  train_samples, eval_samples = load_tts_samples(
-    DATASETS_CONFIG_LIST,
-    eval_split=True,
-    eval_split_max_size=config.eval_split_max_size,
-    eval_split_size=0.025,
-  )
+  train_samples, eval_samples = load_tts_samples(metadata_path, language)
 
     # init the trainer and 🚀
   trainer = Trainer(
@@ -159,7 +154,7 @@ def train_gpt(language, num_epochs, batch_size, grad_acumm, dataset_path, output
   del model, trainer, train_samples, eval_samples
   gc.collect()
 
-  return XTTS_CONFIG_FILE, XTTS_CHECKPOINT, TOKENIZER_FILE
+  return  XTTS_CHECKPOINT, TOKENIZER_FILE
 
 if __name__ == "__main__":
   parser = argparse.ArgumentParser(
@@ -195,18 +190,18 @@ if __name__ == "__main__":
     help="Output path (where data and checkpoints will be saved).",
   )
   parser.add_argument(
-    "--dataset_path",
-    "-d",
+    "--metadata_path",
+    "-m",
     type=str,
     required=True,
-    help="Path to the dataset to be used for fine-tuning.",
+    help="Path to the metadata file containing information about the dataset to be used for fine-tuning.",
   )
   parser.add_argument(
     "--language",
     "-l",
     type=str,
-    default="en",
-    help="Language of the dataset to be used for fine-tuning. Default: en",
+    default="cs",
+    help="Language of the dataset to be used for fine-tuning. Default: cs",
   )
   
   args = parser.parse_args()
@@ -215,14 +210,12 @@ if __name__ == "__main__":
     "text": "K tomu si myslím, že může sloužit i ten dialog, tak, jak jsme ho vedli třeba mezi zeměmi včtyřky.",
     "file_path": "/mnt/matylda5/xfolty17/data/datasets/fiala/fiala_ref.wav",
   }
-  
-  start_time = time.time()
 
   print("Training model...")
   clear_gpu_cache()
   try:
-      config_path, original_xtts_checkpoint, vocab_file = train_gpt(
-          args.language, args.num_epochs, args.batch_size, args.grad_acumm, args.dataset_path, args.out_path, speaker_ref
+      train_gpt(
+          args.language, args.num_epochs, args.batch_size, args.grad_acumm, args.metadata_path, args.out_path, speaker_ref
       )
   except Exception as e:
       print(f"An error occurred during training: {e}")
@@ -230,9 +223,4 @@ if __name__ == "__main__":
   finally:
       clear_gpu_cache()
 
-  # copy original files to avoid parameters changes issues
-  # os.system(f"cp {config_path} {args.out_path}")
-  # os.system(f"cp {vocab_file} {args.out_path}")
-
-  print(f"Training took {time.time() - start_time} seconds.")
   print("Model training done.")
