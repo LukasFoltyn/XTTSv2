@@ -1,16 +1,3 @@
-from safe_gpu import safe_gpu
-from time import sleep
-
-no_gpu = True
-while no_gpu:
-    try:
-        safe_gpu.claim_gpus()
-        no_gpu = False
-    except:
-        print("Waiting for free GPU")
-        sleep(5)
-        pass
-
 import os
 from glob import glob
 import pandas as pd
@@ -30,8 +17,8 @@ def load_model(xtts_checkpoint_dir):
   clear_gpu_cache()
 
   xtts_checkpoint = os.path.join(xtts_checkpoint_dir, "best_model.pth")
-  xtts_config = os.path.join(xtts_checkpoint_dir, "config.json")
-  xtts_vocab = os.path.join(xtts_checkpoint_dir, "vocab.json")
+  xtts_config = "./original_model_files/config.json"
+  xtts_vocab = "./original_model_files/vocab.json"
   
   config = XttsConfig()
   config.load_json(xtts_config)
@@ -88,7 +75,7 @@ if __name__ == "__main__":
      "--language",
       "-l",
       type=str,
-      default="en",
+      default="cs",
       help="Language of the generated audio files.",
   )
   parser.add_argument(
@@ -117,6 +104,7 @@ if __name__ == "__main__":
     speaker_audio_files = glob(os.path.join(SPEAKER_REF_DIR, f"*.{ext}"))
     reference_audio_files.extend(speaker_audio_files)
 
+  reference_audio_files = reference_audio_files[:30]
   # read the sentences file - each line is a sentence
   with open(SENTENCES_FILE, "r") as read:
     sentences = read.readlines()
