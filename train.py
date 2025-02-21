@@ -1,16 +1,3 @@
-# from safe_gpu import safe_gpu
-from time import sleep
-
-# no_gpu = True
-# while no_gpu:
-#     try:
-#         safe_gpu.claim_gpus()
-#         no_gpu = False
-#     except:
-#         print("Waiting for free GPU")
-#         sleep(5)
-#         pass
-
 import numpy as np
 import argparse
 import torch
@@ -18,7 +5,7 @@ import gc
 
 torch.set_num_threads(16)
 
-from trainer import Trainer, TrainerArgs
+from trainer.trainer import Trainer, TrainerArgs
 
 from TTS.tts.layers.xtts.trainer.gpt_trainer import GPTArgs, GPTTrainer, GPTTrainerConfig, XttsAudioConfig
 
