@@ -27,7 +27,7 @@ def clear_gpu_cache():
   if torch.cuda.is_available():
     torch.cuda.empty_cache()
 
-def train_gpt(language, num_epochs, batch_size, grad_acumm, metadata_path, output_path, speaker_ref):
+def train_gpt(language, num_epochs, batch_size, grad_acumm, metadata_path, output_path, checkpoint_path, trainer_args):
   RUN_NAME = "GPT_XTTS_FT"
     
   #  Logging parameters
@@ -48,9 +48,8 @@ def train_gpt(language, num_epochs, batch_size, grad_acumm, metadata_path, outpu
     
   # Paths to the downloaded XTTS v2.0.1 files
   TOKENIZER_FILE = "./original_model_files/vocab.json"
-  XTTS_CHECKPOINT = "./original_model_files/model.pth"
-
-    # init args and config
+  XTTS_CHECKPOINT = checkpoint_path
+  # init args and config
   model_args = GPTArgs(
     max_conditioning_length=132300,  # 6 secs
     min_conditioning_length=66150,  # 3 secs
@@ -70,6 +69,9 @@ def train_gpt(language, num_epochs, batch_size, grad_acumm, metadata_path, outpu
  
   # define audio config
   audio_config = XttsAudioConfig(sample_rate=22050, dvae_sample_rate=22050, output_sample_rate=24000)
+
+  # load training samples
+  train_samples, eval_samples = load_tts_samples(metadata_path, language)
   
   # training parameters config
   config = GPTTrainerConfig(
@@ -105,25 +107,27 @@ def train_gpt(language, num_epochs, batch_size, grad_acumm, metadata_path, outpu
     lr_scheduler="MultiStepLR",
     # it was adjusted accordly for the new step scheme
     lr_scheduler_params={"milestones": [50000 * 18, 150000 * 18, 300000 * 18], "gamma": 0.5, "last_epoch": -1},
-    # test_sentences=[
-    #   {
-    #     "text": speaker_ref["text"],
-    #     "speaker_wav": speaker_ref["file_path"],
-    #     "language": language,
-    #   },
-    # ],
+    test_sentences=[
+      {
+        "text": eval_samples[0]["text"],
+        "speaker_wav": eval_samples[0]["audio_file"],
+        "language": eval_samples[0]["language"],
+      },
+      {
+        "text": eval_samples[1]["text"],
+        "speaker_wav": eval_samples[1]["audio_file"],
+        "language": eval_samples[1]["language"],
+      }
+    ],
   )
 
   # init the model from config
   model = GPTTrainer.init_from_config(config)
 
-  # load training samples
-  train_samples, eval_samples = load_tts_samples(metadata_path, language)
-
-    # init the trainer and 🚀
+  # init the trainer and 🚀
   trainer = Trainer(
     TrainerArgs(
-        restore_path=None,  # xtts checkpoint is restored via xtts_checkpoint key so no need of restore it using Trainer restore_path parameter
+        **trainer_args,
         skip_train_epoch=False,
         start_with_eval=START_WITH_EVAL,
         grad_accum_steps=GRAD_ACUMM_STEPS,
@@ -147,6 +151,13 @@ if __name__ == "__main__":
   parser = argparse.ArgumentParser(
     description="xTTSv2 fine-tuning script\n\n.",
     formatter_class=argparse.RawTextHelpFormatter,
+  )
+  parser.add_argument(
+    "--checkpoint_path",
+    "-c",
+    type=str,
+    help="Path to the checkpoint file to be used as a starting point for fine-tuning.",
+    default="./original_model_files/best_model.pth"
   )
   parser.add_argument(
     "--num_epochs",
@@ -191,19 +202,52 @@ if __name__ == "__main__":
     help="Language of the dataset to be used for fine-tuning. Default: cs",
   )
   
+  parser.add_argument(
+    "--continue_path",
+    type=str,
+    default="",
+    help="Path to continue training from a checkpoint.",
+  )
+  parser.add_argument(
+    "--restore_path",
+    type=str,
+    default="",
+    help="Path to restore a model from a checkpoint.",
+  )
+  parser.add_argument(
+    "--group_id",
+    type=str,
+    default="",
+    help="Group ID for distributed training.",
+  )
+  parser.add_argument(
+    "--use_ddp",
+    type=str,
+    default="false",
+    help="Whether to use Distributed Data Parallel (DDP).",
+  )
+  parser.add_argument(
+    "--rank",
+    type=int,
+    default=0,
+    help="Rank of the current process in distributed training.",
+  )
+
   args = parser.parse_args()
 
-  speaker_ref = {
-    "text": "K tomu si myslím, že může sloužit i ten dialog, tak, jak jsme ho vedli třeba mezi zeměmi včtyřky.",
-    "file_path": "/mnt/matylda5/xfolty17/data/datasets/fiala/fiala_ref.wav",
-  }
+  trainer_args = {
+    "continue_path": args.continue_path,
+    "restore_path": args.restore_path,
+    "group_id": args.group_id,
+    "use_ddp": args.use_ddp.lower() == "true",
+    "rank": args.rank,
+}
 
   print("Training model...")
   clear_gpu_cache()
   try:
       train_gpt(
-          args.language, args.num_epochs, args.batch_size, args.grad_acumm, args.metadata_path, args.out_path, speaker_ref
-      )
+          args.language, args.num_epochs, args.batch_size, args.grad_acumm, args.metadata_path, args.out_path, args.checkpoint_path, trainer_args)
   except Exception as e:
       print(f"An error occurred during training: {e}")
       exit(1)

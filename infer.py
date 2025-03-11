@@ -17,7 +17,7 @@ def load_model(xtts_checkpoint_dir):
   clear_gpu_cache()
 
   xtts_checkpoint = os.path.join(xtts_checkpoint_dir, "best_model.pth")
-  xtts_config = "./original_model_files/config.json"
+  xtts_config = os.path.join(xtts_checkpoint_dir, "config.json")
   xtts_vocab = "./original_model_files/vocab.json"
   
   config = XttsConfig()
@@ -47,7 +47,7 @@ if __name__ == "__main__":
     "--model_path",
     "-m",
     type=str,
-    default="/mnt/matylda5/xmihol00/xTTSv2/data/run/training/XTTS_v2.0_original_model_files",
+    default="./original_model_files/",
     help="Folder where the model files are stored.",
   )
   parser.add_argument(
@@ -58,11 +58,11 @@ if __name__ == "__main__":
     help="Output path where the generated audio files will be saved.",
   )
   parser.add_argument(
-    "--reference_dir",
+    "--reference_file",
     "-r",
     type=str,
     required=True,
-    help="Path to the directory containing speaker's original recordings.",
+    help="Path to the metadata file containing absolute paths to the speaker's original recordings.",
   )
   parser.add_argument(
     "--sentences_file",
@@ -91,23 +91,18 @@ if __name__ == "__main__":
   MODEL_PATH = args.model_path
   LANGUAGE = args.language
   SENTENCES_FILE = args.sentences_file
-  SPEAKER_REF_DIR = args.reference_dir
+  REFERENCE_FILE = args.reference_file
   OUT_PATH = args.out_path
   NUM_SAMPLES = args.num_samples
   
-  EXTENSIONS = ["wav", "flac", "mp3"]
-  
-  reference_audio_files = []
 
-  # get all the audio files
-  for ext in EXTENSIONS:
-    speaker_audio_files = glob(os.path.join(SPEAKER_REF_DIR, f"*.{ext}"))
-    reference_audio_files.extend(speaker_audio_files)
+  # get all the audio files that'll be used for speaker embedding generation
+  with open(REFERENCE_FILE, "r") as ref_f:
+    speaker_refs = [line.strip() for line in ref_f]
 
-  reference_audio_files = reference_audio_files[:30]
   # read the sentences file - each line is a sentence
-  with open(SENTENCES_FILE, "r") as read:
-    sentences = read.readlines()
+  with open(SENTENCES_FILE, "r") as sentence_f:
+    sentences = [line.strip() for line in sentence_f]
 
   xtts_model = load_model(MODEL_PATH)
 
@@ -115,13 +110,14 @@ if __name__ == "__main__":
   os.makedirs(OUT_PATH, exist_ok=True)
 
   gpt_cond_latent, speaker_embedding = xtts_model.get_conditioning_latents(
-      audio_path=reference_audio_files, gpt_cond_len=xtts_model.config.gpt_cond_len, max_ref_length=xtts_model.config.max_ref_len, sound_norm_refs=xtts_model.config.sound_norm_refs)
+      audio_path=speaker_refs, gpt_cond_len=xtts_model.config.gpt_cond_len, max_ref_length=xtts_model.config.max_ref_len, sound_norm_refs=xtts_model.config.sound_norm_refs)
   
+  print("Temperature: ", xtts_model.config.temperature)
+  print("Length penalty: ", xtts_model.config.length_penalty)
+
   with open(os.path.join(OUT_PATH,"metadata.txt"), "w") as metadata:
     for i, sentence in enumerate(sentences):
       # sentence_dir = os.path.join(OUT_PATH, f"sentence_{i}")
-      # os.makedirs(sentence_dir, exist_ok=True)
-
       # generate more samples for each sentence
       # for s in range(NUM_SAMPLES):
       out = xtts_model.inference(
@@ -129,7 +125,7 @@ if __name__ == "__main__":
             language=LANGUAGE,
             gpt_cond_latent=gpt_cond_latent,
             speaker_embedding=speaker_embedding,
-            temperature=xtts_model.config.temperature,
+            temperature=0.6, # xtts_model.config.temperature,
             length_penalty=xtts_model.config.length_penalty,
             repetition_penalty=xtts_model.config.repetition_penalty,
             top_k=xtts_model.config.top_k,
