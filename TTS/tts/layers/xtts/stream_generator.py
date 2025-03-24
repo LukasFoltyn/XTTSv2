@@ -419,6 +419,9 @@ class NewGenerationMixin(GenerationMixin):
                 **model_kwargs,
             )
 
+            # !!! THIS gets returned by return self.gpt_inference.generate_stream in gpy.py file !!!
+            # print("Callled!")
+
             # 13. run sample
             return self.sample_stream(
                 input_ids,
@@ -801,19 +804,15 @@ class NewGenerationMixin(GenerationMixin):
         # keep track of which sequences are already finished
         unfinished_sequences = input_ids.new(input_ids.shape[0]).fill_(1)
 
-        this_peer_finished = False  # used by synced_gpus only
+        
+        print("Unfinished Sequences: ", unfinished_sequences)
+        print("EOS token id: ", eos_token_id)
+
+
+        # !IMPORTANT!
+
         # auto-regressive generation
         while True:
-            if synced_gpus:
-                # Under synced_gpus the `forward` call must continue until all gpus complete their sequence.
-                # The following logic allows an early break if all peers finished generating their sequence
-                this_peer_finished_flag = torch.tensor(0.0 if this_peer_finished else 1.0).to(input_ids.device)
-                # send 0.0 if we finished, 1.0 otherwise
-                dist.all_reduce(this_peer_finished_flag, op=dist.ReduceOp.SUM)
-                # did all peers finish? the reduced sum will be 0.0 then
-                if this_peer_finished_flag.item() == 0.0:
-                    break
-
             # prepare model inputs
             model_inputs = self.prepare_inputs_for_generation(input_ids, **model_kwargs)
 
@@ -825,9 +824,6 @@ class NewGenerationMixin(GenerationMixin):
                 output_hidden_states=output_hidden_states,
             )
 
-            if synced_gpus and this_peer_finished:
-                continue  # don't waste resources running the code we don't need
-
             next_token_logits = outputs.logits[:, -1, :]
 
             # pre-process distribution
@@ -838,12 +834,13 @@ class NewGenerationMixin(GenerationMixin):
             if return_dict_in_generate:
                 if output_scores:
                     scores += (next_token_scores,)
-                if output_attentions:
-                    decoder_attentions += (
-                        (outputs.decoder_attentions,) if self.config.is_encoder_decoder else (outputs.attentions,)
-                    )
-                    if self.config.is_encoder_decoder:
-                        cross_attentions += (outputs.cross_attentions,)
+                # !FALSE!    
+                # if output_attentions:
+                #     decoder_attentions += (
+                #         (outputs.decoder_attentions,) if self.config.is_encoder_decoder else (outputs.attentions,)
+                #     )
+                #     if self.config.is_encoder_decoder:
+                #         cross_attentions += (outputs.cross_attentions,)
 
                 if output_hidden_states:
                     decoder_hidden_states += (
@@ -854,14 +851,20 @@ class NewGenerationMixin(GenerationMixin):
             probs = nn.functional.softmax(next_token_scores, dim=-1)
             next_tokens = torch.multinomial(probs, num_samples=1).squeeze(1)
 
+            print(next_tokens)
+
             # finished sentences should have their next token be a padding token
             if eos_token_id is not None:
                 if pad_token_id is None:
                     raise ValueError("If `eos_token_id` is defined, make sure that `pad_token_id` is defined.")
                 next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)
-            yield next_tokens, self.final_norm(outputs.hidden_states[-1][:, -1])
+
+            yield next_tokens.item(), self.final_norm(outputs.hidden_states[-1][:, -1])
+            
             # update generated ids, model inputs, and length for next step
             input_ids = torch.cat([input_ids, next_tokens[:, None]], dim=-1)
+
+            # !IMPORTANT! 
             model_kwargs = self._update_model_kwargs_for_generation(
                 outputs, model_kwargs, is_encoder_decoder=self.config.is_encoder_decoder
             )
@@ -872,10 +875,8 @@ class NewGenerationMixin(GenerationMixin):
 
             # stop when each sentence is finished, or if we exceed the maximum length
             if unfinished_sequences.max() == 0 or stopping_criteria(input_ids, scores):
-                if not synced_gpus:
-                    break
-                else:
-                    this_peer_finished = True
+                break
+                
 
 
 def init_stream_support():

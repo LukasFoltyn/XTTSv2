@@ -562,12 +562,18 @@ class GPT(nn.Module):
         self,
         cond_latents,
         text_inputs,
+        next_token,
+        generated_tokens,
     ):
+
         text_inputs = F.pad(text_inputs, (0, 1), value=self.stop_text_token)
         text_inputs = F.pad(text_inputs, (1, 0), value=self.start_text_token)
+        
         emb = self.text_embedding(text_inputs) + self.text_pos_embedding(text_inputs)
+
         emb = torch.cat([cond_latents, emb], dim=1)
         self.gpt_inference.store_prefix_emb(emb)
+
         gpt_inputs = torch.full(
             (
                 emb.shape[0],
@@ -577,7 +583,16 @@ class GPT(nn.Module):
             dtype=torch.long,
             device=text_inputs.device,
         )
-        gpt_inputs[:, -1] = self.start_audio_token
+
+        if next_token is not None:
+            gpt_inputs[:, -1] = next_token
+        elif len(generated_tokens) > 0:
+            gpt_inputs = gpt_inputs[:, :-1] # remove the last token
+            generated_tokens = torch.tensor(generated_tokens[-5:]).view(1, -1)
+            gpt_inputs = torch.cat([gpt_inputs, generated_tokens], dim=1)
+        else:
+            gpt_inputs[:, -1] = self.start_audio_token
+
         return gpt_inputs
 
     def generate(

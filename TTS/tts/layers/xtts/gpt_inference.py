@@ -21,6 +21,8 @@ class GPT2InferenceModel(GPT2PreTrainedModel):
     def store_prefix_emb(self, prefix_emb):
         self.cached_prefix_emb = prefix_emb
 
+        # !CUSTOM!
+
     def prepare_inputs_for_generation(self, input_ids, past_key_values=None, **kwargs):
         token_type_ids = kwargs.get("token_type_ids", None)  # usually None
         if not self.kv_cache:
@@ -69,6 +71,9 @@ class GPT2InferenceModel(GPT2PreTrainedModel):
         output_hidden_states=None,
         return_dict=None,
     ):
+        # !FORWARD!
+        # print("###### Calling this forward function! ######")
+
         assert self.cached_prefix_emb is not None
         assert inputs_embeds is None  # Not supported by this inference model.
         assert labels is None  # Training not supported by this inference model.
@@ -77,23 +82,29 @@ class GPT2InferenceModel(GPT2PreTrainedModel):
         # assert len(past_key_values) + len(input_ids) == attention_mask.shape[1]
 
         # Create embedding
-        prefix_len = self.cached_prefix_emb.shape[1]
-        if input_ids.shape[1] != 1:
+        prefix_len = self.cached_prefix_emb.shape[1] 
+        if input_ids.shape[1] != 1: # !IMPORTANT! This is called just for the initial generation step.
             gen_inputs = input_ids[:, prefix_len:]
+
+            # print("GPT inference:", gen_inputs)
+
             gen_emb = self.embeddings(gen_inputs)
             gen_emb = gen_emb + self.pos_embedding(gen_emb)
             if self.cached_prefix_emb.shape[0] != gen_emb.shape[0]:
                 prefix_emb = self.cached_prefix_emb.repeat_interleave(
                     gen_emb.shape[0] // self.cached_prefix_emb.shape[0], 0
                 )
-            else:
+            else: # !IMPORTANT! Branch we are taking. The emb shape is [1, N, 1024]
+                print("Taking the else branch!")
                 prefix_emb = self.cached_prefix_emb.to(gen_emb.dtype)
             emb = torch.cat([prefix_emb, gen_emb], dim=1)
-        else:
+        else: # !IMPORTANT! This is called for the subsequent generation steps, always the with latest input_id. The emb shape is [1, 1, 1024]
             emb = self.embeddings(input_ids)
             emb = emb + self.pos_embedding.get_fixed_embedding(
                 attention_mask.shape[1] - (prefix_len + 1), attention_mask.device
             )
+
+
         transformer_outputs = self.transformer(
             inputs_embeds=emb,
             past_key_values=past_key_values,
