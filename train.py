@@ -1,7 +1,12 @@
 import numpy as np
+import random
+import itertools
 import argparse
 import torch
 import gc
+
+from collections import defaultdict
+from functools import reduce
 
 torch.set_num_threads(16)
 
@@ -9,19 +14,44 @@ from trainer.trainer import Trainer, TrainerArgs
 
 from TTS.tts.layers.xtts.trainer.gpt_trainer import GPTArgs, GPTTrainer, GPTTrainerConfig, XttsAudioConfig
 
-def load_tts_samples(metadata_file, language, eval_split_size=0.02, eval_split_max_size=128):
-  items = []
+random.seed(42)
+np.random.seed(42)
+
+def load_tts_samples(metadata_file, language, eval_split_size=0.02, eval_split_max_size=512):
+  speakers_dict = defaultdict(list)
 
   with open(metadata_file, "r", encoding="utf-8") as f:
     for line in f:
-      audio, transcript = line.strip().split("|")
-      items.append({"audio_file": audio, "text": transcript, "language": language})
-  
-  np.random.shuffle(items)
+      audio, transcript, speaker = line.strip().split("|")
 
-  eval_size = min(int(len(items) * eval_split_size), eval_split_max_size)
+      sample = {"audio_file": audio, "text": transcript, "speaker_name": speaker, "language": language}
+      speakers_dict[speaker].append(sample)
+    
+  # get the total number of samples
+  n_samples = reduce(lambda acc, spk_samples: acc + len(spk_samples), speakers_dict.values(), 0)
 
-  return items[eval_size:], items[:eval_size]
+  # calculate the number of samples to be used for evaluation
+  eval_size = min(int(n_samples * eval_split_size), eval_split_max_size)
+
+  eval_set = []
+
+  while len(eval_set) < eval_size:
+    for speaker in speakers_dict.keys():
+      if len(eval_set) == eval_size:
+        break
+      if len(speakers_dict[speaker]) == 0:
+        continue
+      if len(speakers_dict[speaker]) == 1:
+        eval_set.append(speakers_dict[speaker].pop())
+      else:
+        # sample random recording from the speaker
+        idx = random.randint(0, len(speakers_dict[speaker]) - 1)
+        eval_set.append(speakers_dict[speaker].pop(idx))
+
+  train_set = list(itertools.chain.from_iterable(speakers_dict.values()))
+  np.random.shuffle(train_set)
+
+  return train_set, eval_set
 
 def clear_gpu_cache():
   if torch.cuda.is_available():
@@ -90,7 +120,7 @@ def train_gpt(language, num_epochs, batch_size, grad_acumm, metadata_path, outpu
     batch_group_size=48,
     eval_batch_size=BATCH_SIZE,
     num_loader_workers=8,
-    eval_split_max_size=128,
+    eval_split_max_size=512,
     print_step=50,
     plot_step=100,
     log_model_step=100,
@@ -107,17 +137,15 @@ def train_gpt(language, num_epochs, batch_size, grad_acumm, metadata_path, outpu
     lr_scheduler="MultiStepLR",
     # it was adjusted accordly for the new step scheme
     lr_scheduler_params={"milestones": [50000 * 18, 150000 * 18, 300000 * 18], "gamma": 0.5, "last_epoch": -1},
+    
+    # take last 3 samples from eval set for test audio generation
     test_sentences=[
       {
-        "text": eval_samples[0]["text"],
-        "speaker_wav": eval_samples[0]["audio_file"],
-        "language": eval_samples[0]["language"],
-      },
-      {
-        "text": eval_samples[1]["text"],
-        "speaker_wav": eval_samples[1]["audio_file"],
-        "language": eval_samples[1]["language"],
-      }
+        "text": s["text"],
+        "speaker_wav": s["audio_file"],
+        "language": s["language"],
+
+      } for s in eval_samples[-3:]
     ],
   )
 
@@ -149,7 +177,7 @@ def train_gpt(language, num_epochs, batch_size, grad_acumm, metadata_path, outpu
 
 if __name__ == "__main__":
   parser = argparse.ArgumentParser(
-    description="xTTSv2 fine-tuning script\n\n.",
+    description="xTTSv2 fine-tuning script.\n",
     formatter_class=argparse.RawTextHelpFormatter,
   )
   parser.add_argument(
@@ -170,7 +198,7 @@ if __name__ == "__main__":
     "--batch_size",
     "-b",
     type=int,
-    help="Batch size. Default: 4", # getting error for batch of 16
+    help="Batch size. Default: 4", # if batch is to large, some kind of weird file error occurs
     default=4,
   )
   parser.add_argument(

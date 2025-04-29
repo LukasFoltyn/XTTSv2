@@ -29,6 +29,8 @@ class LearnedPositionEmbeddings(nn.Module):
         self.seq_len = seq_len
 
     def forward(self, x):
+        # print('Calling LearnedPositionEmbeddings forward function!, x:', x.shape)
+        # print(self.relative, self.seq_len)
         sl = x.shape[1]
         if self.relative:
             start = random.randint(sl, self.seq_len) - sl
@@ -562,8 +564,7 @@ class GPT(nn.Module):
         self,
         cond_latents,
         text_inputs,
-        next_token,
-        generated_tokens,
+        context_tokens = [],
     ):
 
         text_inputs = F.pad(text_inputs, (0, 1), value=self.stop_text_token)
@@ -584,14 +585,11 @@ class GPT(nn.Module):
             device=text_inputs.device,
         )
 
-        if next_token is not None:
-            gpt_inputs[:, -1] = next_token
-        elif len(generated_tokens) > 0:
-            gpt_inputs = gpt_inputs[:, :-1] # remove the last token
-            generated_tokens = torch.tensor(generated_tokens[-5:]).view(1, -1)
-            gpt_inputs = torch.cat([gpt_inputs, generated_tokens], dim=1)
-        else:
-            gpt_inputs[:, -1] = self.start_audio_token
+        gpt_inputs[:, -1] = self.start_audio_token
+        
+        if len(context_tokens) > 0:
+            context_tokens = torch.tensor(context_tokens).view(1, -1)
+            gpt_inputs = torch.cat([gpt_inputs, context_tokens], dim=1)
 
         return gpt_inputs
 

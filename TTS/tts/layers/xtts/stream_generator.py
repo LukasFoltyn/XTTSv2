@@ -658,6 +658,7 @@ class NewGenerationMixin(GenerationMixin):
         output_scores: Optional[bool] = None,
         return_dict_in_generate: Optional[bool] = None,
         synced_gpus: Optional[bool] = False,
+        beginning_of_chunk: Optional[bool] = True,
         **model_kwargs,
     ) -> Union[SampleOutput, torch.LongTensor]:
         r"""
@@ -805,11 +806,13 @@ class NewGenerationMixin(GenerationMixin):
         unfinished_sequences = input_ids.new(input_ids.shape[0]).fill_(1)
 
         
-        print("Unfinished Sequences: ", unfinished_sequences)
-        print("EOS token id: ", eos_token_id)
+        # print("Unfinished Sequences: ", unfinished_sequences)
+        # print("EOS token id: ", eos_token_id)
 
-
+        torch.set_printoptions(threshold=float('inf'), precision=4)
         # !IMPORTANT!
+
+        beg_count = 0
 
         # auto-regressive generation
         while True:
@@ -826,8 +829,20 @@ class NewGenerationMixin(GenerationMixin):
 
             next_token_logits = outputs.logits[:, -1, :]
 
+
+            # print(next_token_logits.shape)
+            
+            # if there is a start of next part of the sentence, remove the possibility of sampling the end
+            if beginning_of_chunk:
+                beg_count += 1
+                if beg_count == 5:
+                    beginning_of_chunk = False
+                next_token_logits[:, -1] = -1e+10
+
             # pre-process distribution
             next_token_scores = logits_processor(input_ids, next_token_logits)
+            # print("1: ",next_token_scores.min())
+            
             next_token_scores = logits_warper(input_ids, next_token_scores)
 
             # Store scores, attentions and hidden_states when required
@@ -846,12 +861,14 @@ class NewGenerationMixin(GenerationMixin):
                     decoder_hidden_states += (
                         (outputs.decoder_hidden_states,) if self.config.is_encoder_decoder else (outputs.hidden_states,)
                     )
-
-            # sample
+            
             probs = nn.functional.softmax(next_token_scores, dim=-1)
+
+            # print(probs)
+
             next_tokens = torch.multinomial(probs, num_samples=1).squeeze(1)
 
-            print(next_tokens)
+            # print(next_tokens)
 
             # finished sentences should have their next token be a padding token
             if eos_token_id is not None:

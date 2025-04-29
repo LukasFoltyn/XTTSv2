@@ -2,3 +2,4 @@ original_model_files/
 checkpoints/
 **/__pycache__/
 .DS_Store
+*.wav

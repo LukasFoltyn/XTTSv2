@@ -83,27 +83,41 @@ class GPT2InferenceModel(GPT2PreTrainedModel):
 
         # Create embedding
         prefix_len = self.cached_prefix_emb.shape[1] 
+        # print("input ids shape:", input_ids.shape)
         if input_ids.shape[1] != 1: # !IMPORTANT! This is called just for the initial generation step.
             gen_inputs = input_ids[:, prefix_len:]
 
-            # print("GPT inference:", gen_inputs)
-
             gen_emb = self.embeddings(gen_inputs)
             gen_emb = gen_emb + self.pos_embedding(gen_emb)
-            if self.cached_prefix_emb.shape[0] != gen_emb.shape[0]:
-                prefix_emb = self.cached_prefix_emb.repeat_interleave(
-                    gen_emb.shape[0] // self.cached_prefix_emb.shape[0], 0
-                )
-            else: # !IMPORTANT! Branch we are taking. The emb shape is [1, N, 1024]
-                print("Taking the else branch!")
-                prefix_emb = self.cached_prefix_emb.to(gen_emb.dtype)
+            
+            print(gen_emb.shape)
+
+            # if self.cached_prefix_emb.shape[0] != gen_emb.shape[0]:
+            #     # print("Taking the if branch!")
+            #     prefix_emb = self.cached_prefix_emb.repeat_interleave(
+            #         gen_emb.shape[0] // self.cached_prefix_emb.shape[0], 0
+            #     )
+            # else: 
+            # !IMPORTANT! Branch we are taking. The emb shape is [1, N, 1024]
+            prefix_emb = self.cached_prefix_emb.to(gen_emb.dtype)
+            # else end
+            # print('prefix_emb shape:', prefix_emb.shape)
             emb = torch.cat([prefix_emb, gen_emb], dim=1)
+
+            # print("PREFIX EMBS:", prefix_emb)
+            # print("GEN EMBS:", gen_emb)
+
         else: # !IMPORTANT! This is called for the subsequent generation steps, always the with latest input_id. The emb shape is [1, 1, 1024]
             emb = self.embeddings(input_ids)
             emb = emb + self.pos_embedding.get_fixed_embedding(
                 attention_mask.shape[1] - (prefix_len + 1), attention_mask.device
             )
 
+            # print(input_ids, emb)
+
+
+        # print("emb shape:", emb.shape)
+        # print("past_key_values shape:", past_key_values[0][0].shape if past_key_values is not None else None)
 
         transformer_outputs = self.transformer(
             inputs_embeds=emb,
@@ -119,8 +133,11 @@ class GPT2InferenceModel(GPT2PreTrainedModel):
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
         )
+
         hidden_states = transformer_outputs[0]
+
         lm_logits = self.lm_head(hidden_states)
+        # print('hidden_states shape:', transformer_outputs.hidden_states[0][0].shape)
 
         if not return_dict:
             return (lm_logits,) + transformer_outputs[1:]
