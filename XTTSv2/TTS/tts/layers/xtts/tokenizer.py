@@ -5,8 +5,8 @@ from functools import cached_property
 
 import pypinyin
 import torch
-from hangul_romanize import Transliter
-from hangul_romanize.rule import academic
+# from hangul_romanize import Transliter
+# from hangul_romanize.rule import academic
 from num2words import num2words
 from spacy.lang.ar import Arabic
 from spacy.lang.en import English
@@ -582,8 +582,9 @@ def japanese_cleaners(text, katsu):
 
 
 def korean_transliterate(text):
-    r = Transliter(academic)
-    return r.translit(text)
+    pass
+    # r = Transliter(academic)
+    # return r.translit(text)
 
 
 DEFAULT_VOCAB_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../data/tokenizer.json")

@@ -90,7 +90,7 @@ class GPT2InferenceModel(GPT2PreTrainedModel):
             gen_emb = self.embeddings(gen_inputs)
             gen_emb = gen_emb + self.pos_embedding(gen_emb)
             
-            print(gen_emb.shape)
+            # print(gen_emb.shape)
 
             # if self.cached_prefix_emb.shape[0] != gen_emb.shape[0]:
             #     # print("Taking the if branch!")

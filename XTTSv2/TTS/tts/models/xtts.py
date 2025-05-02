@@ -4,7 +4,6 @@ from dataclasses import dataclass
 import librosa
 import re
 import torch
-import numpy as np
 import torch.nn.functional as F
 import torchaudio
 from coqpit import Coqpit
@@ -232,6 +231,10 @@ class Xtts(BaseTTS):
         self.gpt = None
         self.init_models()
         self.register_buffer("mel_stats", torch.ones(80))
+
+        self.generated_tokens = []
+        self.buffer = ""
+
 
     def init_models(self):
         """Initialize the models. We do it here since we need to load the tokenizer first."""
@@ -801,12 +804,10 @@ class Xtts(BaseTTS):
     @torch.inference_mode()
     def inference_stream_hokus_pokus(
         self,
-        text,
+        text_chunk,
         language,
         gpt_cond_latent,
         speaker_embedding,
-        # Streaming
-        context_tokens=[],
         # GPT inference
         temperature=0.4,
         length_penalty=1.0,
@@ -835,20 +836,34 @@ class Xtts(BaseTTS):
         #    toho, že pro nově generované slovo GPT vidí celý text (i ten co už byl vygenerován) ale zároveň už vidí i tokeny, které vygeneroval, což
         #    by ho snad mělo donutit k tomu, aby dogeneroval jen poslední část textu.
          
+        # texts = ["My name", " is Maki", " and I am", " a very", " happy", " person"]
+        # texts = ["Luky doesn't", " know", " what", " stress is"]
+        # texts = ["Michael", " is attracted ", " to blond ", " women and", " he likes", " them", " very", " much"]
 
-        print(f"Current sentence buffer: {text}")
-        
-        text_tokens = torch.IntTensor(self.tokenizer.encode(text, lang=language)).unsqueeze(0).to(self.device)
-        
+        last_text = False
+
+        if "." in text_chunk:
+            text_chunk = text_chunk[:-1]  # remove the dot
+            last_text = True
+
+        self.buffer +=  (" " + text_chunk) if self.buffer else text_chunk
+
+        print(f"Current sentence buffer: {self.buffer}")
+
+        text_tokens = torch.IntTensor(self.tokenizer.encode(self.buffer, lang=language)).unsqueeze(0).to(self.device)
+
         assert (
             text_tokens.shape[-1] < self.args.gpt_max_text_tokens
         ), " ❗ XTTS can only generate text with a maximum of 400 tokens."
+
         fake_inputs = self.gpt.compute_embeddings(
             gpt_cond_latent.to(self.device),
             text_tokens,
-            context_tokens,
+            self.generated_tokens,
         )
-        
+
+        print(fake_inputs)
+
         gpt_generator = self.gpt.get_generator(
             fake_inputs=fake_inputs,
             top_k=top_k,
@@ -869,19 +884,26 @@ class Xtts(BaseTTS):
             while True: 
                 generated_t, latent = next(gpt_generator)
                 if generated_t != self.gpt.stop_audio_token:
-                    context_tokens.append(generated_t)
-                
+                    self.generated_tokens.append(generated_t)
+                else:
+                    print("[STOP] token generated!")
                 all_latents += [latent]
+
+                if len(self.generated_tokens) % 10 == 0 and len(self.generated_tokens) > 0 and not last_text:
+                    # throw exception 
+                    print("Throwing exception")
+                    raise StopIteration()
         except StopIteration: # take the latents from the generator until it has no more
-            
             gpt_latents = torch.cat(all_latents, dim=0)[None, :]
+            
             if length_scale != 1.0:
                 gpt_latents = F.interpolate(
                     gpt_latents.transpose(1, 2), scale_factor=length_scale, mode="linear"
                 ).transpose(1, 2)
+
             wav_gen = self.hifigan_decoder(gpt_latents, g=speaker_embedding.to(self.device))
-            
-            return wav_gen.squeeze(), context_tokens
+
+            return wav_gen.squeeze()
 
 
     def forward(self):
