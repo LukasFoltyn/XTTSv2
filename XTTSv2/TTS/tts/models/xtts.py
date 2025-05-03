@@ -802,14 +802,14 @@ class Xtts(BaseTTS):
                     yield wav_gen.squeeze()
 
     @torch.inference_mode()
-    def inference_stream_hokus_pokus(
+    def inference_demo(
         self,
         text_chunk,
         language,
         gpt_cond_latent,
         speaker_embedding,
         # GPT inference
-        temperature=0.4,
+        temperature=0.45,
         length_penalty=1.0,
         repetition_penalty=10.0,
         top_k=50,
@@ -822,23 +822,6 @@ class Xtts(BaseTTS):
         gpt_cond_latent = gpt_cond_latent.to(self.device)
         speaker_embedding = speaker_embedding.to(self.device)
 
-        # Pokusy:
-        # 1. vygenerovat slovo, akumulovat počet vygenerovaných latentních proměnných, v dalším kroku již vygenerované konkatenujeme s novým slovem
-        #    a dostaneme nové latentní proměnné. Pro generování aktuálního slova ale použijeme pouze [acc_latents:] -> tedy
-        #    počítáme s tím, že odsekneme část, kterou už jsme vygenerovali a zároveň návaznost na předchozí slovo bude celkem ok
-        
-        # 2. vygenerujeme první slovo a zapamatujeme si výstupy (tokeny) z GPT. Pro další generování slova vezmeme posledních N tokenů
-        #    (musíme vynechat audio stop token) a dáme jako prompt GPT společně s novým text, který chceme syntetizovat (defaultně je vstup nový text + start audio token). 
-        #    Tím se snažíme docílit toho, že nově generované slovo bude mít lepší návaznost na předchozí slovo (kontext z minulosti).
-        
-        # 3. stejné jako v předchozím bodě, ale jako prompt GPT dáváme starý text konkatenovaný s novým textem, který chceme syntetizovat.
-        #    K tomu tentokrát ale připojíme všechny vygenerované tokeny z předchozího slova (vyjma stop audio tokenu). Tímto se snažíme docílit
-        #    toho, že pro nově generované slovo GPT vidí celý text (i ten co už byl vygenerován) ale zároveň už vidí i tokeny, které vygeneroval, což
-        #    by ho snad mělo donutit k tomu, aby dogeneroval jen poslední část textu.
-         
-        # texts = ["My name", " is Maki", " and I am", " a very", " happy", " person"]
-        # texts = ["Luky doesn't", " know", " what", " stress is"]
-        # texts = ["Michael", " is attracted ", " to blond ", " women and", " he likes", " them", " very", " much"]
 
         last_text = False
 
@@ -902,6 +885,10 @@ class Xtts(BaseTTS):
                 ).transpose(1, 2)
 
             wav_gen = self.hifigan_decoder(gpt_latents, g=speaker_embedding.to(self.device))
+
+            if last_text:
+                self.generated_tokens = []
+                self.buffer = ""
 
             return wav_gen.squeeze()
 
