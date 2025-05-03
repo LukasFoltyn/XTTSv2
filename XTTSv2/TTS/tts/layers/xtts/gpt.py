@@ -588,7 +588,7 @@ class GPT(nn.Module):
         gpt_inputs[:, -1] = self.start_audio_token
         
         if len(context_tokens) > 0:
-            context_tokens = torch.tensor(context_tokens).view(1, -1)
+            context_tokens = torch.tensor(context_tokens).view(1, -1).to(text_inputs.device)
             gpt_inputs = torch.cat([gpt_inputs, context_tokens], dim=1)
 
         return gpt_inputs
