@@ -257,7 +257,7 @@ def out_fn(model, gpt_cond_latent, speaker_embedding):
                 speaker_embedding,
         )
 
-        sock.sendall(audio_chunk.numpy().tobytes())
+        sock.sendall(audio_chunk.cpu().numpy().tobytes())
     
     sock.close()
 

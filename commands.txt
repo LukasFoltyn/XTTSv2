@@ -1,1 +1,7 @@
-TODO remote port forwarding
+Remote port forwarding
+
+Na lokalnim pocitaci (potreba mit setupnuty .ssh/config):
+ssh -R 12345:localhost:12345 merlin
+
+Na merlinovi potom (opet je mit potreba setupnuty .ssh/config tak aby se na supergpu skakalo pres svatavu):
+ssh -R 12345:localhost:12345 supergpu[cislo gpu]
